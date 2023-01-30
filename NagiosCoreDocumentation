@@ -1,0 +1,362 @@
+INDEX
+1.	Overview
+2.	Install NagiosCore.
+3.	Install perl, rrdtool & Pnp4Nagios for graphs.
+4.	Install mysql & integrate with rrdtool for datastore.
+5.	Cronjob to execute conversions and export metrics to DB.
+ 
+
+Overview
+The Setup:
+
+
+
+
+
+
+Few basic metrics (like PING, CPU etc..) can be captured without agent.
+*Snapshot saved as NagiosFnl (image)  use this image for instance creation and access Nagios dashboard using URL :  
+  Nagios: 10.45.28.111
+Uid: nagiosadmin    Pwd
+ 
+Installing Nagios Core on Ubuntu 20.4:
+1. Install and Configure Nagios Core
+Update the system packages.
+$ sudo apt update
+Install all the required packages.
+$ sudo apt install wget unzip curl openssl build-essential libgd-dev libssl-dev libapache2-mod-php php-gd php apache2 -y
+Download Nagios Core Setup files. To download the latest version, visit the official releases site.
+$ wget https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.4.6.tar.gz
+Extract the downloaded files.
+$ sudo tar -zxvf nagios-4.4.6.tar.gz
+Navigate to the setup directory.
+$ cd nagios-4.4.6
+Run the Nagios Core configure script.
+$ sudo ./configure
+Compile the main program and CGIs.
+$ sudo make all
+Make and install group and user.
+$ sudo make install-groups-users
+Add www-data directories user to the nagios group.
+$ sudo usermod -a -G nagios www-data
+Install Nagios.
+$ sudo make install
+Initialize all the installation configuration scripts.
+$ sudo make install-init
+Install and configure permissions on the configs' directory.
+$ sudo make install-commandmode
+Install sample config files.
+$ sudo make install-config
+Install apache files.
+$ sudo make install-webconf
+Enable apache rewrite mode.
+$ sudo a2enmod rewrite
+Enable CGI config.
+$ sudo a2enmod cgi
+Restart the Apache service.
+$ sudo systemctl restart apache2
+Create a user and set the password when prompted.
+$ sudo htpasswd -c /usr/local/nagios/etc/htpasswd.users admin
+
+2. Install Nagios Plugins
+Download the Nagios Core plugin. To download the latest plugins, visit the plugins download page.
+$ cd ~/
+$ wget https://nagios-plugins.org/download/nagios-plugins-2.3.3.tar.gz
+Extract the downloaded plugin.
+$ sudo tar -zxvf nagios-plugins-2.3.3.tar.gz
+Navigate to the plugins' directory.
+$ cd nagios-plugins-2.3.3/
+Run the plugin configure script.
+$ sudo ./configure --with-nagios-user=nagios --with-nagios-group=nagios
+Compile Nagios Core plugins.
+$ sudo make
+Install the plugins.
+$ sudo make install
+3. Verify Nagios Configuration
+Verify the Nagios Core configuration.
+$ sudo /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+Start the Nagios service.
+$ sudo systemctl start nagios
+Enable Nagios service to run at system startup.
+$ sudo systemctl enable nagios
+4. Access Nagios Web Interface
+Open your web browser and access Nagios web interface via the URL http://ServerIP/nagios. For example:
+http://<IP>/nagios
+
+You have successfully installed Nagios Core on your server. To log in, use admin as your username and the password you set during the user account creation step as your password. You can now access the dashboard and begin configuring Nagios.
+5. Add Remote Hosts
+Now that your Nagios server is configured, it's time to configure a remote host to monitor.
+To get started, connect as root over SSH to the host you want to monitor.
+Install Prerequisites
+To monitor hosts, we need to add them to Nagios. By default, Nagios only monitors localhost (the server it's running on). We're going to add hosts that are part of our network to gain even more control. You will need to use the following instructions on all hosts that you want to monitor.
+First, install nagios-plugins and nagios-nrpe-server:
+# apt-get install nagios-plugins nagios-nrpe-server
+Configure NRPE
+Next, open the /etc/nagios/nrpe.cfg file. Replace the value of allowed_hosts with 127.0.0.1,0.0.0.0 replacing the second IP with the IP address of the NagiosServerIP .
+We will now open the file /etc/nagios/nrpe.cfg and replace a couple of values.
+Replace the value of server_address to the private IP address of the host.
+Set allowed_hosts to the private IP address of your Nagios server.
+
+Now restart NRPE:
+# service nagios-nrpe-server restart
+Add the Host to Nagios
+Now that we've configured the host we're going to monitor, we need to switch back to our Nagios server and add the host to it. Open the following file with your favorite editor:
+
+# nano /usr/local/nagios/etc/servers/host.cfg
+
+Use the following block as a template. Replace host with an appropriate name for your remote host, and update the host_name, alias, and address values accordingly.
+
+define host {
+    host_name              Server_10_45_4_253
+    alias                  Srvr_4_253
+    address                10.45.4.253
+    max_check_attempts     3
+    check_period           24x7
+    check_command          check-host-alive
+    contacts               nagiosadmin
+    notification_interval  60
+    notification_period    24x7
+}
+
+This will allow you to simply monitor whether the server is up or down.
+
+Or you also add separate files/file with group of hosts with similar contents(hosts and services definitions)..
+
+For example:
+
+define host {
+    use OSM-VMs ; Inherit default values from a template
+    host_name              OSM_Host_HostIP
+    alias                  OSM_Host_HostIP
+    address                HostIP
+    max_check_attempts     3
+    check_period           24x7
+    check_command          check-host-alive
+    contacts               nagiosadmin
+    notification_interval  60
+    notification_period    24x7
+}
+define service{
+use                             local-service
+host_name                       OSM_Host_HostIP
+service_description             Root / Partition
+check_command                   check_nrpe!check_disk
+}
+
+define service{
+use                             local-service
+host_name                       OSM_Host_HostIP
+service_description             /mnt Partition
+check_command                   check_nrpe!check_mnt_disk
+}
+
+define service{
+use                             local-service
+host_name                       OSM_Host_HostIP
+service_description             Current Users
+check_command                   check_nrpe!check_users
+}
+
+define service{
+use                             local-service
+host_name                       OSM_Host_HostIP
+service_description             Total Processes
+check_command                   check_nrpe!check_total_procs
+}
+
+define service{
+use                             local-service
+host_name                       OSM_Host_HostIP
+service_description             Current Load
+check_command                   check_nrpe!check_load
+}
+
+define service {
+        use                             generic-service
+        host_name                       OSM_Host_HostIP
+        service_description             DiskCheck
+        check_command                   check_DiskUtil
+        }
+
+
+In file,  /usr/local/nagios/etc/nagios.cfg
+
+cfg_file=/usr/local/nagios/etc/objects/hosts/OSM-VMs.cfg
+
+In file, /usr/local/nagios/etc/objects/commands.cfg
+
+define command{
+        command_name    check_DiskUtil
+        command_line    $USER1$/check_nrpe -H $HOSTADDRESS$ -c check_DiskUtil
+        }
+
+Now reload Nagios:
+# service nagios reload
+
+Congratulations, you have completed a very basic Nagios setup for monitoring your servers. Now you can log into the Nagios web panel to view the status of your servers.
+
+Graphs Using rrdtool & Pnp4Nagios
+Prerequisites
+Perform these steps to install the pre-requisite packages.
+sudo apt-get update
+sudo apt-get install -y rrdtool librrd-simple-perl php-gd php-xml
+Downloading the Source
+cd /tmp
+wget -O pnp4nagios.tar.gz https://github.com/lingej/pnp4nagios/archive/0.6.26.tar.gz
+tar xzf pnp4nagios.tar.gz
+Configure & Install:
+	
+cd pnp4nagios-0.6.26
+sudo ./configure --with-httpd-conf=/etc/apache2/sites-enabled
+sudo make all
+sudo make install
+sudo make install-webconf
+sudo make install-config
+sudo make install-init
+ Configure & Start Service / Daemon
+The npcd service needs to be configured to start on boot, it also needs to be started. The apache2 service is also restarted at this point.
+sudo systemctl daemon-reload
+sudo systemctl enable npcd.service
+sudo systemctl start npcd.service
+sudo systemctl restart apache2.service
+
+
+
+
+
+Install Mysql and integrate with rrdtool
+mysql installation:
+sudo apt update
+sudo apt install mysql-server
+sudo systemctl start mysql.service
+User creation
+mysql -uroot -p
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'password';
+GRANT PRIVILEGE ON database.table TO 'osm'@'host';
+CREATE USER 'osm'@'localhost' IDENTIFIED BY 'osm123';
+GRANT PRIVILEGE ON database.table TO 'osm'@'localhost';
+GRANT CREATE, ALTER, DROP, INSERT, UPDATE, DELETE, SELECT, REFERENCES, RELOAD on *.* TO 'sammy'@'localhost' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+Create a perl file for rrd to csv conversion:
+$ vi rrd2csv.pl
+Copy the contents of this file (a perl code to convert rrd file to csv ) 
+ 
+
+Adding cronjob to convert rrd to csv and load to mysql db for every 1Hour.
+
+0 * * * * /usr/bin/sh /root/Scripts/nagio2Db.sh
+Shell script to the conversions and exporting metrics to table.
+ 	
+
+
+
+
+
+
+
+
+
+
+NRPE(Nagios Remote Plug-in Executor) agent install in Ubuntu VMs:
+
+In Client machine:
+sudo apt update 
+sudo apt install nagios-nrpe-server nagios-plugins
+sudo vi /etc/nagios/nrpe.cfg
+#Add Server IP: 10.45.28.111 in allowed hosts as shown below.
+     allowed_hosts=127.0.0.1, 10.45.28.111
+sudo systemctl restart nagios-nrpe-server
+sudo systemctl status nagios-nrpe-server
+Expected results..
+ 
+Restart nrpe service:
+sudo /etc/init.d/nagios-nrpe-server restart
+
+Check nrpe command execution:
+
+ 
+
+
+
+
+
+
+
+Integrating custom scripts : illustrated here with a sample Shell Script.
+In client Machine: 
+create & save your custom shell script here; /usr/lib/nagios/plugins 
+cd /usr/lib/nagios/plugins 
+sudo vi check_RootDisk.sh
+set execute  permission to file:
+chmod +x check_RootDisk.sh
+ 
+*Output of script must look in similar fashion, like 2 parts delimited using “|” in which 1st part for dashboard message and 2nd will be used for plotting graph.
+Values 70- Warning; 85- Critical; Min-0 & Max-Undefined here..
+
+Make an entry of script in nrpe.cfg config file..: 
+sudo vi /etc/nagios/nrpe.cfg
+command[check_RootDisk]=/usr/lib/nagios/plugins/check_RootDisk.sh
+Restart nrpe service:
+sudo /etc/init.d/nagios-nrpe-server restart
+
+Inform the Custom script command ( check_RootDisk here) created to Nagios Server Admin to get it monitored.
+*With Nagios core you can monitor n number of devices & Services.
+With respect to Nagios xi you can monitor only 6 devices
+Here we are working with Nagios Core.
+
+
+
+Current Nagios Server configured to monitor Client 10.45.4.253 (Ping, CPU, Memory(RAM), Root(/) Disk usages).
+ 
+And graphs corresponding to each metric can also be found.
+
+
+
+Nagios the Server Side:
+
+Create Hosts
+Configure Nagios with required check_commands at 
+Nagios is also integrated with mysql Db..
+With DB name: nagiosDb
+All metrics captured in rrd format were converted to csv on hourly basis using cront job and loaded into a table OSM_Server_Metrics.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Snaps from the Portal:
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+
+Snap from mysql  DB:
+ 
+Useful O&M commands..:
+To Create user or change existing user’s Password: 
+sudo htpasswd /usr/local/nagios/etc/htpasswd.users nagiosadmin
+To restart :
+sudo systemctl daemon-reload
+sudo systemctl enable npcd.service
+sudo systemctl start npcd.service
+
+sudo systemctl restart apache2.service
+
+sudo /usr/local/pnp4nagios/bin/npcd -d -f /usr/local/pnp4nagios/etc/npcd.cfg
+sudo /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+sudo systemctl restart nagios.service
